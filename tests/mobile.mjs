@@ -18,9 +18,8 @@ try {
   const ammo=await page.locator('.ammo').boundingBox();
   for(const b of buttons){const r=await b.boundingBox();assert.ok(!(r.x<ammo.x+ammo.width&&r.x+r.width>ammo.x&&r.y<ammo.y+ammo.height&&r.y+r.height>ammo.y),'Buttons do not cover ammo');}
   await page.waitForTimeout(100);
-  assert.ok((await page.locator('#objective').textContent()).includes('ENTRE NO SITE'),'Touch hint preserves movement instruction');
-  const objective=await page.locator('#objective').boundingBox();
-  for(const b of buttons){const r=await b.boundingBox();assert.ok(!(r.x<objective.x+objective.width&&r.x+r.width>objective.x&&r.y<objective.y+objective.height&&r.y+r.height>objective.y),'Buttons do not cover objective guidance');}
+  assert.equal(await page.locator('#objective').isVisible(),false,'Objective text stays hidden on mobile to keep combat view clear');
+  assert.equal(await page.locator('#progress').isVisible(),true,'Action progress remains available');
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'No horizontal overflow');
   const cdp=await context.newCDPSession(page),points=[];
   const touch=async()=>cdp.send('Input.dispatchTouchEvent',{type:points.length?'touchMove':'touchEnd',touchPoints:points});
