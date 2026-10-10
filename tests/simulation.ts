@@ -1,15 +1,38 @@
 import assert from 'node:assert/strict';
 import {Vector3} from 'three';
-import {Match,hitTest,route,sites,free} from '../src/sim.ts';
-const g=new Match(123);g.start(0);g.update(8.1,false);assert.equal(g.phase,'live');
-const shooter=g.actors[0],target=g.actors[5];for(const a of g.actors.slice(1))a.alive=false;target.alive=true;shooter.pos.set(-20,0,6);target.pos.set(-20,0,0);
-for(const [zone,height] of [['head',1.7],['body',1.05],['legs',.35]] as const){const origin=new Vector3(-20,height,6);const hit=hitTest(origin,new Vector3(0,0,-1),g.actors,shooter);assert.equal(hit?.actor,target);assert.equal(hit?.zone,zone);}
-target.pos.set(9,0,0);shooter.pos.set(9,0,24);assert.equal(hitTest(shooter.eye,new Vector3(0,0,-1),g.actors,shooter),undefined,'Building must stop a ray');
-const before=shooter.pos.clone();g.move(shooter,0,-10);assert.deepEqual(shooter.pos,before,'Blocked movement cannot enter building');
-for(const site of sites){const path=route(new Vector3(0,0,28),site);assert.ok(path.length>0);assert.ok(path.every(p=>free(p.x,p.z,.5)));assert.ok(path.at(-1)!.distanceTo(site)<2.1);}
-// Three consecutive rounds through actual timer, plant, defuse and restart transitions.
-const cycle=new Match(11);cycle.start(0);cycle.update(8.01,false);cycle.update(75.01,false);assert.equal(cycle.history[0].reason,'TEMPO ESGOTADO');cycle.update(5.01,false);cycle.update(8.01,false);const carrier=cycle.actors[cycle.bomb.carrier];carrier.pos.copy(sites[0]);cycle.interact(carrier,3.01);assert.equal(cycle.phase,'planted');cycle.update(30.01,false);assert.equal(cycle.history[1].reason,'BOMBA DETONADA');cycle.update(5.01,false);cycle.update(8.01,false);cycle.actors[cycle.bomb.carrier].pos.copy(sites[1]);cycle.interact(cycle.actors[cycle.bomb.carrier],3.01);const defender=cycle.actors.find(a=>a.team!==cycle.attack)!;defender.pos.copy(cycle.bomb.pos);cycle.interact(defender,5.01);assert.equal(cycle.history[2].reason,'BOMBA DESARMADA');cycle.update(5.01,false);assert.equal(cycle.round,4);assert.equal(cycle.attack,1,'Teams switch at halftime');
-const damage=new Match();damage.start(0);damage.update(8.01,false);damage.damage(damage.actors[0],damage.actors[5],'head');assert.equal(damage.actors[5].hp,13);damage.damage(damage.actors[0],damage.actors[5],'head');assert.equal(damage.actors[5].alive,false);damage.next();assert.equal(damage.actors[5].alive,true);assert.equal(damage.actors[5].hp,100);
-const drop=new Match();drop.start(0);drop.update(8.1,false);const victim=drop.actors[drop.bomb.carrier];drop.damage(drop.actors[5],victim,'head');drop.damage(drop.actors[5],victim,'head');assert.equal(drop.bomb.state,'dropped');drop.actors[0].pos.copy(drop.bomb.pos);drop.interact(drop.actors[0],.1);assert.equal(drop.bomb.carrier,0);
-const autonomous=new Match(42);autonomous.start(1);autonomous.actors[0].alive=false;for(let i=0;i<60*300&&autonomous.history.length<3;i++)autonomous.update(1/60);assert.ok(autonomous.history.length>=3,'Autonomous bots must finish three rounds');
-console.log(JSON.stringify({status:'passed',controlledRounds:cycle.history,autonomousRounds:autonomous.history,checks:['hit zones','wall occlusion','collision','A* routes','timer victory','bomb explosion','defuse','halftime','death and respawn','bomb recovery','autonomous bots']},null,2));
+import {Arena,Monster,monsterNames,waveSizes,hitTest} from '../src/sim.ts';
+import {maps,free,route} from '../src/maps.ts';
+
+assert.equal(monsterNames.length,11);assert.equal(new Set(monsterNames).size,11);
+assert.notDeepEqual(maps.guama.blocks,maps.jurunas.blocks,'Maps have distinct geometry');
+for(const map of Object.values(maps)){
+ assert.ok(free(map,map.spawn.x,map.spawn.z));
+ for(const gate of map.gates){assert.ok(free(map,gate.x,gate.z));const path=route(map,gate,map.spawn);assert.ok(path.length>0);assert.ok(path.every(p=>free(map,p.x,p.z,.5)));assert.ok(path.at(-1)!.distanceTo(map.spawn)<2.1);}
+ const g=new Arena(37);g.start(map.id,'  Arena Player  ');assert.equal(g.player.name,'Arena Player');assert.equal(g.phase,'playing');assert.equal(g.kills,0);
+ const before=g.player.pos.clone();g.move(g.player,0,-100,.1);assert.ok(free(map,g.player.pos.x,g.player.pos.z));assert.ok(g.player.pos.z>-24,'No wall tunneling');g.player.pos.copy(before);
+ // Exercise every spawn and wave through the same update path used by the UI.
+ for(let i=0;i<60*180&&g.phase==='playing';i++){
+  g.update(1/60,false);
+  for(const enemy of g.enemies)if(enemy.alive)g.damage(enemy,999,0);
+  g.events=[];
+ }
+ assert.equal(g.phase,'won');assert.equal(g.wave,4);assert.equal(g.kills,waveSizes.reduce((a,b)=>a+b,0));assert.equal(g.spawned,g.kills);assert.ok(monsterNames.every(name=>g.enemies.some(e=>e.name===name)));
+ const count=g.kills;g.damage(g.enemies[0],999,0);assert.equal(g.kills,count,'Dead monsters cannot award duplicate kills');
+ g.start(map.id,'');assert.equal(g.player.name,'Jogador');assert.equal(g.kills,0);assert.equal(g.wave,1);assert.equal(g.player.hp,100);assert.equal(g.enemies.length,0);
+ // Newly spawned monsters move toward an unobstructed player and can hurt them.
+ g.update(1.01,false);const enemy=g.enemies[0];enemy.pos.set(0,0,14);const distance=enemy.pos.distanceTo(g.player.pos);
+ for(let i=0;i<30;i++)g.update(1/60);assert.ok(enemy.pos.distanceTo(g.player.pos)<distance);
+ enemy.pos.set(0,0,17);enemy.attackDelay=0;g.update(.02);assert.ok(g.player.hp<100);
+ g.damage(g.player,999,enemy.id);assert.equal(g.phase,'lost');const elapsed=g.elapsed;g.update(10);assert.equal(g.elapsed,elapsed,'Defeat stops the simulation');
+ // Navigation must handle obstacles instead of freezing at the walls.
+ const chase=new Arena(4);chase.start(map.id,'test');chase.pending=0;const hunter=new Monster(1,0);hunter.pos.set(-20,0,-20);chase.enemies=[hunter];
+ for(let i=0;i<60*80&&chase.player.hp===100;i++)chase.update(1/60);
+ assert.ok(chase.player.hp<100,`${map.name}: hunter reaches the player around obstacles`);
+}
+const g=new Arena();g.start('guama','<script>');g.pending=0;const enemy=new Monster(1,0);g.enemies=[enemy];g.player.pos.set(0,0,10);enemy.pos.set(0,0,0);
+for(const [zone,height] of [['head',1.8],['body',1.1],['legs',.3]] as const){assert.equal(hitTest(g.map,new Vector3(0,height,10),new Vector3(0,0,-1),g.enemies,g.player)?.zone,zone);}
+enemy.pos.set(-11,0,-14);g.player.pos.set(-11,0,0);assert.equal(hitTest(g.map,g.player.eye,new Vector3(0,0,-1),g.enemies,g.player),undefined,'Buildings block bullets');
+g.player.ammo=0;g.player.reserve=17;g.shoot(new Vector3(0,0,-1));assert.ok(g.player.reload>0);g.update(1.3,false);assert.equal(g.player.ammo,17);assert.equal(g.player.reserve,0);
+g.player.hp=40;g.pickups=[{id:2,kind:'health',pos:g.player.pos.clone(),active:true}];g.update(.01,false);assert.equal(g.player.hp,65);assert.equal(g.pickups[0].active,false);
+g.start('jurunas','new');assert.equal(g.map.id,'jurunas');assert.equal(g.enemies.length,0);assert.equal(g.pickups.length,0);
+console.log('PASS: two map layouts, navigable spawn gates, four complete waves, all 11 monster names, exact kills, pursuit, melee, victory/defeat, collision, bullet occlusion, reload, pickups and restart');

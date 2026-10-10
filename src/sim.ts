@@ -1,50 +1,96 @@
-import { Vector3, Box3, Ray } from 'three';
-export type Team = 0 | 1;
+import {Box3,Ray,Vector3} from 'three';
+import {maps,free,route,wallDistance,type MapId,type ArenaMap} from './maps.ts';
+
 export type Difficulty='easy'|'normal';
-export type Phase = 'menu' | 'freeze' | 'live' | 'planted' | 'end' | 'match';
-export type Zone = 'head' | 'body' | 'legs';
-export const sites = [new Vector3(-20,0,-10),new Vector3(20,0,-10)];
-export interface Block { x:number; z:number; w:number; d:number; h:number; kind:string }
-export const blocks:Block[]=[];
-function block(x:number,z:number,w:number,d:number,h:number,kind='wall'){blocks.push({x,z,w,d,h,kind});}
-block(-31,0,2,66,5);block(31,0,2,66,5);block(0,-33,64,2,5);block(0,33,64,2,5);
-for(const s of [-1,1]){block(s*9,0,10,34,5,'building');for(const z of [-19,-4,12,23]){block(s*24,z,4,3,2.1,'crate');block(s*16,z+5,3,3,1.15,'crate');}block(s*9,-24,5,3,2.4,'crate');block(s*9,25,5,3,2.4,'crate');}
-export const boxes=blocks.map(b=>new Box3(new Vector3(b.x-b.w/2,0,b.z-b.d/2),new Vector3(b.x+b.w/2,b.h,b.z+b.d/2)));
-export function free(x:number,z:number,r=.4){return !blocks.some(b=>Math.abs(x-b.x)<b.w/2+r&&Math.abs(z-b.z)<b.d/2+r);}
-export function wallDistance(origin:Vector3,dir:Vector3){const ray=new Ray(origin,dir);let distance=Infinity;const hit=new Vector3();for(const b of boxes){if(ray.intersectBox(b,hit))distance=Math.min(distance,origin.distanceTo(hit));}return distance;}
-export const roles=['PONTA','ÂNCORA','FLANCO','SUPORTE','BOMBA'];
+export type Phase='menu'|'playing'|'won'|'lost';
+export type Zone='head'|'body'|'legs';
+export const monsterNames=['MARCUS','ADY','REINALDO','CAVALCANTE','CYNTHIA','JULIANA','SAID','JAINARA','FÁBIO','DEJA','NADJA'];
+export const waveSizes=[6,9,12,17];
 export class Actor{
- speed=0; enemyId=-1; reaction=0; aimAmount=0; pos=new Vector3(); yaw=0; hp=100; armor=100; ammo=30; reserve=90; alive=true; crouch=false; moving=0; silent=false; cooldown=0; reload=0; spray=0; action=0; path:Vector3[]=[]; navTime=0; target=new Vector3(); spotted=0; foot=0; weapon='AR-30';
- constructor(public id:number,public team:Team,public role:number,public player=false){}
- get eye(){return this.pos.clone().add(new Vector3(0,this.crouch?1.05:1.65,0));}
+ pos=new Vector3();yaw=0;hp=100;alive=true;aimAmount=0;speed=0;moving=0;ammo=30;reserve=180;cooldown=0;reload=0;spray=0;foot=0;
+ constructor(public id:number,public name:string,public player=false){}
+ get eye(){return this.pos.clone().add(new Vector3(0,1.6,0));}
 }
-export interface GameEvent {type:string; actor?:number; target?:number; zone?:Zone; value?:number; pos?:Vector3; text?:string}
-export function hitTest(origin:Vector3,dir:Vector3,actors:Actor[],shooter:Actor){let distance=wallDistance(origin,dir), result:{actor:Actor;zone:Zone;distance:number}|undefined;const ray=new Ray(origin,dir),hit=new Vector3();for(const a of actors){if(!a.alive||a===shooter)continue;const h=a.crouch?1.25:1.9;for(const [zone,lo,hi,w] of [['head',h-.38,h,.24],['body',h*.38,h-.38,.32],['legs',0,h*.38,.25]] as [Zone,number,number,number][]){const b=new Box3(new Vector3(a.pos.x-w,lo,a.pos.z-w),new Vector3(a.pos.x+w,hi,a.pos.z+w));if(ray.intersectBox(b,hit)){const d=origin.distanceTo(hit);if(d<distance){distance=d;result={actor:a,zone,distance:d};}}}}return result;}
-// A* on the same collision footprint used by the player, cached per bot route.
-export function route(start:Vector3,end:Vector3){const step=2;const key=(x:number,z:number)=>`${x},${z}`;const sx=Math.round(start.x/step),sz=Math.round(start.z/step);let ex=Math.round(end.x/step),ez=Math.round(end.z/step);if(!free(ex*step,ez*step,.5)){let best=Infinity;for(let x=-14;x<=14;x++)for(let z=-15;z<=15;z++){const d=(x*step-end.x)**2+(z*step-end.z)**2;if(free(x*step,z*step,.5)&&d<best){best=d;ex=x;ez=z;}}}const open=[{x:sx,z:sz,g:0,f:0}],cost=new Map([[key(sx,sz),0]]),prev=new Map<string,string>();let finish='';for(let n=0;open.length&&n<1100;n++){open.sort((a,b)=>b.f-a.f);const c=open.pop()!;const ck=key(c.x,c.z);if(c.x===ex&&c.z===ez){finish=ck;break;}for(const [dx,dz] of [[1,0],[-1,0],[0,1],[0,-1]]){const x=c.x+dx,z=c.z+dz,k=key(x,z),g=c.g+1;if(Math.abs(x)>14||Math.abs(z)>15||!free(x*step,z*step,.5)||g>=(cost.get(k)??Infinity))continue;cost.set(k,g);prev.set(k,ck);open.push({x,z,g,f:g+Math.abs(x-ex)+Math.abs(z-ez)});}}const out:Vector3[]=[];while(finish&&finish!==key(sx,sz)){const [x,z]=finish.split(',').map(Number);out.unshift(new Vector3(x*step,0,z*step));finish=prev.get(finish)??'';}return out;}
-export class Match{
- difficulty:Difficulty='normal'; phase:Phase='menu'; actors:Actor[]=[]; attack:Team=0; initialAttack:Team=0; score=[0,0]; round=0; timer=0; elapsed=0; bomb={state:'carried',carrier:4,pos:new Vector3(),timer:30,site:-1}; events:GameEvent[]=[]; history:{round:number;winner:Team;reason:string}[]=[]; random:()=>number; objectiveSite=0; threatened=-1; winner:Team=0;
- constructor(seed=42){let s=seed;this.random=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};for(let i=0;i<10;i++)this.actors.push(new Actor(i,i<5?0:1,i%5,i===0));}
- start(side:Team){this.initialAttack=side===0?0:1;this.attack=this.initialAttack;this.score=[0,0];this.round=0;this.history=[];this.events=[];this.next();}
- next(){this.round++;this.attack=this.round<=3?this.initialAttack:(1-this.initialAttack) as Team;this.phase='freeze';this.timer=8;this.elapsed=0;this.threatened=-1;this.objectiveSite=this.round%2;for(const a of this.actors){a.pos.set((a.role-2)*2,0,a.team===this.attack?28:-28);a.hp=100;a.armor=100;a.alive=true;a.ammo=a.weapon==='SMG-24'?24:30;a.reserve=90;a.reload=0;a.cooldown=0;a.spray=0;a.action=0;a.path=[];a.navTime=0;a.crouch=false;a.silent=false;a.foot=0;a.speed=0;a.enemyId=-1;a.reaction=0;a.spotted=0;a.moving=0;a.aimAmount=0;a.yaw=a.team===this.attack?0:Math.PI;}const carrier=this.actors.find(a=>a.team===this.attack&&a.role===4)!;this.bomb={state:'carried',carrier:carrier.id,pos:carrier.pos.clone(),timer:30,site:-1};this.events.push({type:'round',text:`ROUND ${this.round}`});}
- end(winner:Team,reason:string){if(!['live','planted'].includes(this.phase))return;this.winner=winner;this.score[winner]++;this.history.push({round:this.round,winner,reason});this.phase='end';this.timer=5;this.events.push({type:'end',text:reason});}
+export class Monster extends Actor{
+ path:Vector3[]=[];navTime=0;attackDelay=.6;target=new Vector3();
+ constructor(id:number,public variant:number){super(id,monsterNames[variant]);this.hp=48+(variant%4)*8;}
+ get moveSpeed(){return 1.8+(this.variant%4)*.2;}
+}
+export interface Pickup{id:number;kind:'health'|'ammo';pos:Vector3;active:boolean}
+export interface GameEvent{type:'spawn'|'shot'|'hit'|'kill'|'reload'|'pickup'|'wave'|'end';actor?:number;target?:number;zone?:Zone;value?:number;pos?:Vector3}
+export function hitTest(map:ArenaMap,origin:Vector3,dir:Vector3,actors:Actor[],shooter:Actor){
+ const ray=new Ray(origin,dir),hit=new Vector3();let distance=wallDistance(map,origin,dir),result:{actor:Actor;zone:Zone;distance:number}|undefined;
+ for(const a of actors){if(a===shooter||!a.alive)continue;for(const [zone,lo,hi,w] of [['head',1.45,2.2,.34],['body',.65,1.45,.5],['legs',0,.65,.34]] as [Zone,number,number,number][]){const b=new Box3(new Vector3(a.pos.x-w,lo,a.pos.z-w),new Vector3(a.pos.x+w,hi,a.pos.z+w));if(ray.intersectBox(b,hit)){const d=origin.distanceTo(hit);if(d<distance){distance=d;result={actor:a,zone,distance:d};}}}}
+ return result;
+}
+export class Arena{
+ phase:Phase='menu';difficulty:Difficulty='easy';map:ArenaMap=maps.guama;player=new Actor(0,'Jogador',true);enemies:Monster[]=[];pickups:Pickup[]=[];events:GameEvent[]=[];
+ kills=0;wave=0;pending=0;spawnTimer=0;nextWave=0;elapsed=0;spawned=0;private serial=1;private seed:number;
+ constructor(seed=42){this.seed=seed;}
+ random(){this.seed=(this.seed*1664525+1013904223)>>>0;return this.seed/4294967296;}
+ get totalEnemies(){return waveSizes.reduce((a,b)=>a+b,0);}
+ start(mapId:MapId,name:string,difficulty:Difficulty='easy'){
+  this.map=maps[mapId];this.difficulty=difficulty;Object.assign(this.player,new Actor(0,name.trim().slice(0,24)||'Jogador',true));this.player.pos.copy(this.map.spawn);
+  this.enemies=[];this.pickups=[];this.events=[];this.kills=0;this.wave=0;this.spawned=0;this.serial=1;this.elapsed=0;this.nextWave=0;this.phase='playing';this.beginWave();
+ }
+ private beginWave(){this.wave++;this.pending=waveSizes[this.wave-1];this.spawnTimer=1;this.nextWave=0;if(this.wave>1){this.player.hp=Math.min(100,this.player.hp+15);this.player.reserve=Math.min(300,this.player.reserve+60);}this.events.push({type:'wave',value:this.wave});}
+ spawnMonster(){
+  const gates=this.map.gates.filter(p=>p.distanceTo(this.player.pos)>10&&this.enemies.every(e=>!e.alive||e.pos.distanceTo(p)>1.5));
+  if(!gates.length)return false;
+  const enemy=new Monster(this.serial++,this.spawned%monsterNames.length);enemy.pos.copy(gates[Math.floor(this.random()*gates.length)]);enemy.yaw=Math.atan2(-(this.player.pos.x-enemy.pos.x),-(this.player.pos.z-enemy.pos.z));this.enemies.push(enemy);this.spawned++;this.events.push({type:'spawn',actor:enemy.id,pos:enemy.pos.clone()});return true;
+ }
  move(a:Actor,dx:number,dz:number,dt=1/60){
-  const old=a.pos.clone(),steps=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dz))/.2));
-  const allowX=free(a.pos.x+dx,a.pos.z),allowZ=free(a.pos.x,a.pos.z+dz);
-  for(let i=0;i<steps;i++){if(allowX&&free(a.pos.x+dx/steps,a.pos.z))a.pos.x+=dx/steps;if(allowZ&&free(a.pos.x,a.pos.z+dz/steps))a.pos.z+=dz/steps;}
+  const old=a.pos.clone(),steps=Math.max(1,Math.ceil(Math.max(Math.abs(dx),Math.abs(dz))/.18));
+  for(let i=0;i<steps;i++){if(free(this.map,a.pos.x+dx/steps,a.pos.z,.45))a.pos.x+=dx/steps;if(free(this.map,a.pos.x,a.pos.z+dz/steps,.45))a.pos.z+=dz/steps;}
   a.moving=a.pos.distanceTo(old);a.speed=a.moving/Math.max(dt,.0001);
  }
- damage(a:Actor,target:Actor,zone:Zone){if(!a.alive||!target.alive||a.team===target.team)return;const base=zone==='head'?112:zone==='body'?34:23;const ease=this.difficulty==='easy'&&a.team===1?(target.player?.5:.8):1;const damage=Math.round(base*(a.weapon==='SMG-24'?.76:1)*(target.armor>0&&zone!=='legs'?.78:1)*ease);target.hp-=damage;target.armor=Math.max(0,target.armor-damage*.45);this.events.push({type:'hit',actor:a.id,target:target.id,zone,value:damage,pos:a.pos.clone()});if(target.hp<=0){target.hp=0;target.alive=false;this.events.push({type:'kill',actor:a.id,target:target.id,zone});if(this.bomb.state==='carried'&&this.bomb.carrier===target.id){this.bomb.state='dropped';this.bomb.pos.copy(target.pos);this.bomb.carrier=-1;}}}
- shoot(a:Actor,direction:Vector3,spread=true){if(!a.alive||!['live','planted'].includes(this.phase)||a.cooldown>0||a.reload>0||a.ammo<=0)return;const smg=a.weapon==='SMG-24';a.ammo--;a.cooldown=smg?.085:.115;if(!a.player&&this.difficulty==='easy'&&a.team===1)a.cooldown=.32;a.spray++;const d=direction.clone();if(spread){const cone=(.004+Math.min(a.speed/6,1)*.012+(a.crouch?0:.002)+Math.min(a.spray,20)*.00035)*(1-.7*a.aimAmount);d.x+=(this.random()-.5)*cone;d.y+=(this.random()-.5)*cone;d.z+=(this.random()-.5)*cone;d.normalize();}const hit=hitTest(a.eye,d,this.actors,a);this.events.push({type:'shot',actor:a.id,pos:a.eye});if(hit)this.damage(a,hit.actor,hit.zone);}
- reload(a:Actor){if(a.alive&&a.reload<=0&&a.reserve>0&&a.ammo<(a.weapon==='SMG-24'?24:30)){a.reload=a.player?1.6:2.1;this.events.push({type:'reload',actor:a.id});}}
- interact(a:Actor,dt:number,held=true){if(!a.alive||!held||a.reload>0){a.action=0;return;}if(this.phase==='live'&&a.team===this.attack){if(this.bomb.state==='dropped'&&a.pos.distanceTo(this.bomb.pos)<1.6){this.bomb.state='carried';this.bomb.carrier=a.id;}const site=sites.findIndex(s=>s.distanceTo(a.pos)<4);if(this.bomb.carrier===a.id&&site>=0){a.action+=dt;if(a.action>=3){this.phase='planted';this.bomb.state='planted';this.bomb.pos.copy(a.pos);this.bomb.site=site;this.bomb.timer=30;a.action=0;this.events.push({type:'plant',actor:a.id,text:`BOMBA ARMADA · ${site?'B':'A'}`});}return;}}if(this.phase==='planted'&&a.team!==this.attack&&a.pos.distanceTo(this.bomb.pos)<2){a.action+=dt;if(a.action>=5)this.end(a.team,'BOMBA DESARMADA');return;}a.action=0;}
- visible(a:Actor,b:Actor){const dir=b.eye.sub(a.eye),dist=dir.length();return dist<48&&wallDistance(a.eye,dir.normalize())>dist;}
- bot(a:Actor,dt:number){let enemy:Actor|undefined;let nearest=Infinity;for(const b of this.actors){if(b.team!==a.team&&b.alive&&this.visible(a,b)&&a.pos.distanceTo(b.pos)<(this.difficulty==='easy'&&a.team===1?30:48)){const d=a.pos.distanceTo(b.pos);if(d<nearest){enemy=b;nearest=d;b.spotted=this.elapsed+2.5;}}}const easy=this.difficulty==='easy'&&a.team===1;a.moving=0;if(enemy){if(a.enemyId!==enemy.id){a.enemyId=enemy.id;a.reaction=easy?.85:.25;}a.reaction=Math.max(0,a.reaction-dt);if(a.role!==0&&a.role!==2)a.speed=0;if(a.team!==this.attack)this.threatened=enemy.pos.x<0?0:1;const dir=enemy.eye.sub(a.eye);a.yaw=Math.atan2(-dir.x,-dir.z);if(a.ammo===0)this.reload(a);if(a.action<=0){const aim=enemy.pos.clone().add(new Vector3((this.random()-.5)*(easy?1.8:.8),1.15+(this.random()-.5)*(easy?1.4:.9),(this.random()-.5)*(easy?1.8:.8))).sub(a.eye).normalize();if(a.reaction===0&&this.elapsed>1+a.role*.22)this.shoot(a,aim);if(a.role===2||a.role===0){const s=Math.sin(this.elapsed*1.7+a.id)>0?1:-1;this.move(a,Math.cos(a.yaw)*s*dt*1.3,-Math.sin(a.yaw)*s*dt*1.3,dt);}else a.crouch=nearest>12;}if(this.phase!=='planted'&&a.role!==4)return;}
- if(!enemy){a.enemyId=-1;a.reaction=0;}a.crouch=false;let goal:Vector3;
- if(this.phase==='planted'){goal=a.team===this.attack?this.bomb.pos.clone().add(new Vector3((a.role%2?1:-1)*5,0,5+a.role)):this.bomb.pos.clone();}
- else if(a.team===this.attack){if(this.bomb.state==='dropped')goal=this.bomb.pos.clone();else if(a.role===2&&this.elapsed<20)goal=sites[1-this.objectiveSite].clone().add(new Vector3(0,0,8));else goal=sites[this.objectiveSite].clone().add(new Vector3((a.role-2)*1.2,0,a.role===4?0:3));}
- else {const site=this.threatened>=0?this.threatened:a.role%2;goal=sites[site].clone().add(new Vector3((a.role-2)*1.3,0,a.role===1?-5:4));}
- if(a.pos.distanceTo(goal)>1){a.navTime-=dt;if(a.navTime<=0||a.target.distanceTo(goal)>2){a.path=route(a.pos,goal);a.target.copy(goal);a.navTime=2;}const next=a.path[0];if(next){const d=next.clone().sub(a.pos);if(d.length()<.45)a.path.shift();else{d.normalize();const speed=a.role===1?2.4:a.role===2?4.1:3.3;this.move(a,d.x*dt*speed,d.z*dt*speed,dt);if(!enemy)a.yaw=Math.atan2(-d.x,-d.z);}}}else {a.moving=0;a.speed=0;}
- this.interact(a,dt);}
- update(dt:number,bots=true){if(this.phase==='menu'||this.phase==='match')return;this.timer-=dt;if(this.phase==='freeze'){if(this.timer<=0){this.phase='live';this.timer=75;}return;}if(this.phase==='end'){if(this.timer<=0){if(this.score.some(s=>s>=4)||this.round>=6)this.phase='match';else this.next();}return;}this.elapsed+=dt;for(const a of this.actors){a.cooldown=Math.max(0,a.cooldown-dt);if(a.cooldown===0)a.spray=Math.max(0,a.spray-dt*4);if(a.reload>0){a.reload-=dt;if(a.reload<=0){const n=Math.min((a.weapon==='SMG-24'?24:30)-a.ammo,a.reserve);a.ammo+=n;a.reserve-=n;}}if(a.alive&&!a.player&&bots)this.bot(a,dt);}if(this.bomb.state==='carried')this.bomb.pos.copy(this.actors[this.bomb.carrier].pos);const attackers=this.actors.filter(a=>a.alive&&a.team===this.attack).length,defenders=this.actors.filter(a=>a.alive&&a.team!==this.attack).length;if(!defenders)this.end(this.attack,'ELIMINAÇÃO');else if(!attackers&&this.phase==='live')this.end((1-this.attack) as Team,'ELIMINAÇÃO');else if(this.phase==='live'&&this.timer<=0)this.end((1-this.attack) as Team,'TEMPO ESGOTADO');else if(this.phase==='planted'){this.bomb.timer-=dt;if(this.bomb.timer<=0)this.end(this.attack,'BOMBA DETONADA');}}
+ visible(a:Actor,b:Actor){const delta=b.eye.sub(a.eye),distance=delta.length();return wallDistance(this.map,a.eye,delta.normalize())>distance;}
+ damage(target:Actor,amount:number,actor:number,zone:Zone='body'){
+  if(this.phase!=='playing'||!target.alive)return;target.hp=Math.max(0,target.hp-amount);this.events.push({type:'hit',actor,target:target.id,zone,value:amount,pos:target.pos.clone()});
+  if(target.hp>0)return;target.alive=false;
+  if(target.player){this.phase='lost';this.events.push({type:'end'});return;}
+  this.kills++;this.events.push({type:'kill',actor,target:target.id,pos:target.pos.clone()});
+  if(this.kills%4===0)this.pickups.push({id:this.serial++,kind:this.kills%8===0?'ammo':'health',pos:target.pos.clone(),active:true});
+ }
+ shoot(direction:Vector3,spread=true){
+  const a=this.player;if(this.phase!=='playing'||!a.alive||a.cooldown>0||a.reload>0)return;
+  if(a.ammo===0){this.reload();return;}a.ammo--;a.cooldown=.105;a.spray++;
+  const d=direction.clone();if(spread){const cone=(.004+Math.min(a.speed/6,1)*.01+Math.min(a.spray,12)*.0003)*(1-.7*a.aimAmount);d.x+=(this.random()-.5)*cone;d.y+=(this.random()-.5)*cone;d.z+=(this.random()-.5)*cone;d.normalize();}
+  this.events.push({type:'shot',actor:0,pos:a.eye});const hit=hitTest(this.map,a.eye,d,this.enemies,a);if(hit)this.damage(hit.actor,hit.zone==='head'?90:hit.zone==='body'?36:26,0,hit.zone);
+ }
+ reload(){const p=this.player;if(this.phase==='playing'&&p.alive&&p.reload<=0&&p.reserve>0&&p.ammo<30){p.reload=1.25;this.events.push({type:'reload',actor:0});}}
+ private chase(enemy:Monster,dt:number){
+  const p=this.player,delta=p.pos.clone().sub(enemy.pos),distance=delta.length();enemy.attackDelay=Math.max(0,enemy.attackDelay-dt);enemy.moving=0;enemy.speed=0;
+  enemy.yaw=Math.atan2(-delta.x,-delta.z);
+  if(distance<1.65&&this.visible(enemy,p)){
+   if(enemy.attackDelay===0){enemy.attackDelay=this.difficulty==='easy'?1.25:.85;this.damage(p,this.difficulty==='easy'?5+enemy.variant%3:9+enemy.variant%5,enemy.id);}return;
+  }
+  let goal:Vector3|undefined;
+  // Walk straight only when every point along the ground path is clear.
+  const steps=Math.max(1,Math.ceil(distance/.4));let clear=true;
+  for(let i=1;i<=steps;i++)if(!free(this.map,enemy.pos.x+delta.x*i/steps,enemy.pos.z+delta.z*i/steps,.5)){clear=false;break;}
+  if(clear){goal=p.pos;}else{
+   enemy.navTime-=dt;if(enemy.navTime<=0||enemy.target.distanceTo(p.pos)>3){enemy.path=route(this.map,enemy.pos,p.pos);enemy.target.copy(p.pos);enemy.navTime=.65+enemy.variant*.025;}
+   while(enemy.path.length&&enemy.pos.distanceTo(enemy.path[0])<.4)enemy.path.shift();goal=enemy.path[0];
+  }
+  if(!goal)return;const direction=goal.clone().sub(enemy.pos);if(direction.lengthSq()<.01)return;direction.normalize();
+  const step=enemy.moveSpeed*(this.difficulty==='easy'?1:1.2)*dt;
+  const next=enemy.pos.clone().addScaledVector(direction,step);
+  // Keep the horde spread out instead of stacking every monster in one point.
+  if(this.enemies.some(other=>other!==enemy&&other.alive&&other.pos.distanceTo(next)<.85)){
+   const side=enemy.id%2?1:-1;this.move(enemy,-direction.z*step*.65*side,direction.x*step*.65*side,dt);
+  }else this.move(enemy,direction.x*step,direction.z*step,dt);
+ }
+ update(dt:number,enemies=true){
+  if(this.phase!=='playing')return;this.elapsed+=dt;const p=this.player;
+  p.cooldown=Math.max(0,p.cooldown-dt);p.spray=Math.max(0,p.spray-dt*3);
+  if(p.reload>0){p.reload=Math.max(0,p.reload-dt);if(p.reload===0){const n=Math.min(30-p.ammo,p.reserve);p.ammo+=n;p.reserve-=n;}}
+  if(this.pending>0){this.spawnTimer-=dt;if(this.spawnTimer<=0){if(this.spawnMonster())this.pending--;this.spawnTimer=.6;}}
+  if(enemies)for(const enemy of this.enemies){if(this.phase!=='playing')break;if(enemy.alive)this.chase(enemy,dt);}
+  if(this.phase!=='playing')return;
+  for(const pickup of this.pickups)if(pickup.active&&pickup.pos.distanceTo(p.pos)<1.6){if(pickup.kind==='health'&&p.hp===100||pickup.kind==='ammo'&&p.reserve>=300)continue;pickup.active=false;if(pickup.kind==='health')p.hp=Math.min(100,p.hp+25);else p.reserve=Math.min(300,p.reserve+60);this.events.push({type:'pickup',pos:pickup.pos.clone()});}
+  if(this.pending===0&&this.enemies.every(e=>!e.alive)){
+   if(this.wave===waveSizes.length){this.phase='won';this.events.push({type:'end'});}else{this.nextWave+=dt;if(this.nextWave>=2.5)this.beginWave();}
+  }
+ }
 }
