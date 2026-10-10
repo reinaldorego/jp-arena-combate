@@ -25,7 +25,7 @@ assert.ok(aim>.999);assert.ok(smoothAim(aim,false,1/60)<aim,'ADS exits smoothly'
 function hits(aimAmount:number){
  const g=new Match(37);g.start(0);g.phase='live';const a=g.actors[0],b=g.actors[5];
  for(const actor of g.actors.slice(1))actor.alive=false;b.alive=true;
- a.pos.set(-20,0,10);b.pos.set(-20,0,-10);a.moving=.1;a.aimAmount=aimAmount;
+ a.pos.set(-20,0,25);b.pos.set(-20,0,-25);a.moving=.1;a.speed=6;a.aimAmount=aimAmount;
  const direction=b.pos.clone().add(new Vector3(0,1.15,0)).sub(a.eye).normalize();let count=0;
  for(let i=0;i<200;i++){a.cooldown=0;a.spray=0;a.ammo=30;b.hp=100;b.alive=true;g.events=[];g.shoot(a,direction);count+=Number(g.events.some(e=>e.type==='hit'));}
  return count;

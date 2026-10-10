@@ -46,7 +46,7 @@ O teste de simulação cobre acertos por zona, oclusão, colisão, rotas, três 
 
 ## Celular
 
-Controle virtual à esquerda para movimentar; arraste à direita para olhar. Segure MIRA para ADS, ATIRAR para disparar e AÇÃO / E para plantar, recuperar ou desarmar a bomba. Os botões também permitem recarregar, agachar, andar devagar, comprar, pausar e trocar a câmera. Funciona em retrato e paisagem; paisagem oferece mais espaço para visualizar o combate. A partida usa bots locais, sem multiplayer.
+Controle virtual à esquerda para movimentar; arraste à direita para olhar. Toque MIRA para ativar/desativar o ADS; segure e arraste ATIRAR para disparar e mirar com o mesmo dedo e AÇÃO / E para plantar, recuperar ou desarmar a bomba. Os botões também permitem recarregar, agachar, andar devagar, comprar, pausar e trocar a câmera. Funciona em retrato e paisagem; paisagem oferece mais espaço para visualizar o combate. A partida usa bots locais, sem multiplayer.
 
 ## Publicação
 
@@ -55,3 +55,7 @@ O workflow .github/workflows/pages.yml testa, compila e publica a pasta dist no 
 ## Verificação dos controles
 
 Execute npm test para regras e controles; com o servidor ativo, npm run qa:gameplay valida teclado, mouse e ADS e npm run qa:mobile valida layouts e gestos multitoque nas duas orientações.
+
+## Jogabilidade acessível
+
+Fácil é o modo inicial: os inimigos levam mais tempo para reagir, disparam mais devagar e causam metade do dano ao jogador. Normal mantém o combate tático. A recarga é automática quando o pente esvazia durante o disparo. O HUD indica direção e distância até o objetivo, e os personagens mostram ALIADO ou INIMIGO. A precisão depende da velocidade real, em vez da quantidade de deslocamento por quadro. Ao ser eliminado, a câmera escolhe um aliado vivo.

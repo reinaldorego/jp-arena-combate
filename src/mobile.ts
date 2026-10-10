@@ -3,11 +3,11 @@ export function mobileControls(callbacks:{look:(x:number,y:number)=>void;reload:
  const state={enabled,x:0,z:0,fire:false,aim:false,interact:false,crouch:false,silent:false};
  document.body.classList.toggle('touch-mode',enabled);
  const panel=document.createElement('div');panel.id='touch-controls';panel.className='hidden';
- panel.innerHTML=`<div id="touch-look" aria-label="Arraste para olhar"></div><div id="joystick" aria-label="Arraste para mover"><i></i></div><div class="touch-top"><button data-tap="pause">PAUSA</button><button data-tap="buy">COMPRA</button><button data-tap="score">PLACAR</button></div><div class="touch-actions"><button data-hold="aim">MIRA</button><button data-hold="fire" class="touch-fire">ATIRAR</button><button data-hold="interact">AÇÃO / E</button><button data-tap="reload">RECARREGAR</button><button data-hold="crouch">AGACHAR</button><button data-hold="silent">ANDAR</button><button data-tap="watch">CÂMERA</button></div>`;
+ panel.innerHTML=`<div id="touch-look" aria-label="Arraste para olhar"></div><div id="joystick" aria-label="Arraste para mover"><i></i></div><div class="touch-top"><button data-tap="pause">PAUSA</button><button data-tap="buy">COMPRA</button><button data-tap="score">PLACAR</button></div><div class="touch-actions"><button data-toggle="aim" aria-pressed="false">MIRA</button><button data-hold="fire" class="touch-fire">ATIRAR<br>↔ ARRASTE</button><button data-hold="interact">AÇÃO / E</button><button data-tap="reload">RECARREGAR</button><button data-hold="crouch">AGACHAR</button><button data-hold="silent">ANDAR</button><button data-tap="watch">CÂMERA</button></div>`;
  document.body.append(panel);
  let moveId:number|null=null,lookId:number|null=null,lastX=0,lastY=0;
  const pointers=new Map<number,HTMLElement>();
- panel.addEventListener('pointerdown',e=>pointers.set(e.pointerId,e.target as HTMLElement));
+ panel.addEventListener('pointerdown',e=>pointers.set(e.pointerId,(e.target as HTMLElement).closest<HTMLElement>('button,#joystick,#touch-look')??e.target as HTMLElement));
  panel.addEventListener('pointerup',e=>pointers.delete(e.pointerId));
  panel.addEventListener('pointercancel',e=>pointers.delete(e.pointerId));
  const joystick=panel.querySelector<HTMLElement>('#joystick')!,thumb=joystick.querySelector<HTMLElement>('i')!;
@@ -21,13 +21,18 @@ export function mobileControls(callbacks:{look:(x:number,y:number)=>void;reload:
  look.addEventListener('pointermove',e=>{if(e.pointerId!==lookId)return;callbacks.look(e.clientX-lastX,e.clientY-lastY);lastX=e.clientX;lastY=e.clientY;});
  for(const type of ['pointerup','pointercancel','lostpointercapture'])look.addEventListener(type,e=>{if((e as PointerEvent).pointerId===lookId)lookId=null;});
  panel.querySelectorAll<HTMLButtonElement>('[data-hold]').forEach(button=>{
-  const key=button.dataset.hold as 'fire'|'aim'|'interact'|'crouch'|'silent';let id:number|null=null;
-  button.addEventListener('pointerdown',e=>{if(id!==null)return;e.preventDefault();id=e.pointerId;button.setPointerCapture(id);state[key]=true;button.classList.add('pressed');});
+  const key=button.dataset.hold as 'fire'|'interact'|'crouch'|'silent';let id:number|null=null,x=0,y=0;
+  button.addEventListener('pointerdown',e=>{if(id!==null)return;e.preventDefault();id=e.pointerId;x=e.clientX;y=e.clientY;button.setPointerCapture(id);state[key]=true;button.classList.add('pressed');});
+  button.addEventListener('pointermove',e=>{if(key==='fire'&&e.pointerId===id){callbacks.look(e.clientX-x,e.clientY-y);x=e.clientX;y=e.clientY;}});
   for(const type of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(type,e=>{if((e as PointerEvent).pointerId===id){id=null;state[key]=false;button.classList.remove('pressed');}});
  });
+ const aim=panel.querySelector<HTMLButtonElement>('[data-toggle="aim"]')!;
+ const toggleAim=()=>{state.aim=!state.aim;aim.classList.toggle('pressed',state.aim);aim.setAttribute('aria-pressed',String(state.aim));};
+ aim.addEventListener('pointerdown',e=>{e.preventDefault();toggleAim();});
+ aim.onclick=e=>{if(e.detail===0)toggleAim();};
  panel.querySelectorAll<HTMLButtonElement>('[data-tap]').forEach(button=>button.onclick=()=>callbacks[button.dataset.tap as Exclude<keyof typeof callbacks,'look'>]());
  return Object.assign(state,{
-  reset(){for(const [id,element] of pointers){element.dispatchEvent(new PointerEvent('pointercancel',{pointerId:id}));if(element.hasPointerCapture(id))element.releasePointerCapture(id);}pointers.clear();state.x=state.z=0;state.fire=state.aim=state.interact=state.crouch=state.silent=false;moveId=lookId=null;thumb.style.transform='';panel.querySelectorAll('.pressed').forEach(el=>el.classList.remove('pressed'));},
+  reset(){for(const [id,element] of pointers){element.dispatchEvent(new PointerEvent('pointercancel',{pointerId:id}));if(element.hasPointerCapture(id))element.releasePointerCapture(id);}pointers.clear();state.x=state.z=0;state.fire=state.aim=state.interact=state.crouch=state.silent=false;moveId=lookId=null;thumb.style.transform='';aim.setAttribute('aria-pressed','false');panel.querySelectorAll('.pressed').forEach(el=>el.classList.remove('pressed'));},
   show(show:boolean){panel.classList.toggle('hidden',!enabled||!show);}
  });
 }

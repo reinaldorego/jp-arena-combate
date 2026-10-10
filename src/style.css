@@ -6,3 +6,5 @@
 #notice:has(#rematch:not(.hidden)){z-index:5;pointer-events:auto}#roster{z-index:5;pointer-events:auto}.touch-mode #roster{font-size:11px;padding:14px}.touch-mode #roster td{padding:7px}
 @media(pointer:coarse) and (orientation:portrait){.touch-mode #bottom{bottom:270px}.touch-mode #objective{bottom:320px}.touch-mode #progress{bottom:310px}}
 @media(pointer:coarse) and (max-height:500px){.touch-mode #bottom{right:230px}}
+#difficulty{display:block;width:100%;padding:12px;background:#18292f;color:#e7ede9;border:1px solid #344950;border-radius:6px}.touch-mode .subtitle:after{content:'Mova à esquerda. Toque MIRA para ativar o zoom. Segure ATIRAR e arraste para mirar enquanto dispara.'}#objective{max-width:min(620px,75vw);text-align:center;line-height:1.5}.touch-mode #objective{max-width:70vw}
+@media(pointer:coarse) and (max-height:500px){.touch-mode #objective{left:160px;right:220px;transform:none;width:auto;max-width:none;bottom:64px;font-size:9px;padding:5px 8px}.touch-mode #progress{left:160px;width:calc(100vw - 380px);bottom:56px}}

@@ -2,6 +2,7 @@ import {Vector3} from 'three';
 
 export const walkSpeed=6;
 export const baseMouseSensitivity=.002;
+export const touchSensitivity=.006;
 export const hipFov=100;
 export const aimFov=50;
 
@@ -17,6 +18,6 @@ export function accelerate(velocity:Vector3,keys:Set<string>,yaw:number,speed:nu
  const length=Math.hypot(x,z);
  if(length>1){x/=length;z/=length;}
  const target=new Vector3((x*Math.cos(yaw)+z*Math.sin(yaw))*speed,0,(-x*Math.sin(yaw)+z*Math.cos(yaw))*speed);
- velocity.lerp(target,1-Math.exp(-(length?12:16)*dt));
+ velocity.lerp(target,1-Math.exp(-(length?16:22)*dt));
  if(!length&&velocity.lengthSq()<.0001)velocity.set(0,0,0);
 }

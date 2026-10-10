@@ -10,7 +10,7 @@ try {
  await page.waitForFunction(()=>window.breach?.game);
  await page.evaluate(()=>{
   const {game,renderer}=window.breach,render=renderer.render.bind(renderer);
-  renderer.render=(scene,camera)=>{window.view={fov:camera.fov,pitch:camera.rotation.x,gun:camera.children[0]?.position.toArray()};render(scene,camera);};
+  renderer.render=(scene,camera)=>{window.view={fov:camera.fov,pitch:camera.rotation.x,position:camera.position.toArray(),gun:camera.children[0]?.position.toArray()};render(scene,camera);};
   const update=game.update.bind(game);game.update=dt=>update(dt,false);
  });
  await page.click('#start');
@@ -58,6 +58,13 @@ try {
  await page.keyboard.press('r');await page.waitForTimeout(350);
  assert.ok(await page.evaluate(()=>window.breach.game.actors[0].aimAmount)<.05,'Reload lowers the weapon');
  await page.mouse.up({button:'right'});
+ await page.evaluate(()=>{const p=window.breach.game.actors[0];p.reload=0;p.cooldown=0;p.ammo=1;p.reserve=90;});
+ await page.mouse.down({button:'left'});
+ await page.waitForFunction(()=>window.breach.game.actors[0].reload>0);
+ await page.waitForFunction(()=>window.breach.game.actors[0].reserve<90);
+ await page.mouse.up({button:'left'});
+ await page.evaluate(()=>{const actors=window.breach.game.actors;for(let i=0;i<5;i++)actors[i].alive=i===2;actors[2].pos.set(-20,0,10);});
+ await page.waitForFunction(()=>Math.abs(window.view.position[0]+20)<.001&&Math.abs(window.view.position[2]-10)<.001);
  await page.evaluate(()=>document.exitPointerLock());
  await page.waitForFunction(()=>!document.pointerLockElement&&window.breach.game.actors[0].aimAmount===0);
  assert.equal(await page.evaluate(()=>window.breach.game.actors[0].aimAmount),0,'Pause clears aim');
