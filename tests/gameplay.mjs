@@ -1,0 +1,66 @@
+import {chromium} from 'playwright';
+import assert from 'node:assert/strict';
+import {mkdir} from 'node:fs/promises';
+
+const browser=await chromium.launch({channel:'chrome',headless:true});
+try {
+ const page=await browser.newPage({viewport:{width:1280,height:720}}),errors=[];
+ page.on('pageerror',e=>errors.push(e.message));
+ await page.goto(process.env.GAME_URL??'http://127.0.0.1:5173');
+ await page.waitForFunction(()=>window.breach?.game);
+ await page.evaluate(()=>{
+  const {game,renderer}=window.breach,render=renderer.render.bind(renderer);
+  renderer.render=(scene,camera)=>{window.view={fov:camera.fov,pitch:camera.rotation.x,gun:camera.children[0]?.position.toArray()};render(scene,camera);};
+  const update=game.update.bind(game);game.update=dt=>update(dt,false);
+ });
+ await page.click('#start');
+ await page.waitForFunction(()=>document.pointerLockElement===document.querySelector('#world'));
+ await page.evaluate(()=>{const g=window.breach.game;g.phase='live';g.timer=75;g.events=[];g.actors[0].pos.set(0,0,28);});
+ await page.waitForTimeout(100);
+ assert.equal(await page.evaluate(()=>window.view.fov),100);
+
+ const turn=async movementX=>page.evaluate(x=>{const p=window.breach.game.actors[0],before=p.yaw;document.dispatchEvent(new MouseEvent('mousemove',{movementX:x}));return p.yaw-before;},movementX);
+ assert.ok(Math.abs(await turn(10)+.02)<1e-9,'Linear base sensitivity');
+ assert.ok(Math.abs(await turn(20)+.04)<1e-9,'Double input produces double turn');
+ await page.keyboard.down('ArrowUp');await page.waitForTimeout(80);
+ const early=await page.evaluate(()=>window.breach.game.actors[0].moving);
+ await page.waitForTimeout(400);
+ const moving=await page.evaluate(()=>window.breach.game.actors[0].pos.toArray());
+ assert.ok(early>0);
+ await page.keyboard.up('ArrowUp');await page.waitForTimeout(80);
+ const coast=await page.evaluate(()=>window.breach.game.actors[0].pos.toArray());
+ assert.ok(coast[2]<moving[2],'Coasts after key release');
+ await page.waitForTimeout(600);
+ assert.equal(await page.evaluate(()=>window.breach.game.actors[0].moving),0,'Friction reaches rest');
+
+ await mkdir('artifacts',{recursive:true});
+ await page.screenshot({path:'artifacts/gameplay-hip.png'});
+ await page.mouse.down({button:'right'});
+ await page.waitForFunction(()=>window.breach.game.actors[0].aimAmount>.05);
+ const transition=await page.evaluate(()=>window.view.fov);
+ assert.ok(transition<100&&transition>50,'FOV interpolates');
+ await page.waitForFunction(()=>window.breach.game.actors[0].aimAmount>.999);
+ assert.ok(Math.abs(await page.evaluate(()=>window.view.fov)-50)<.06);
+ const gun=await page.evaluate(()=>window.view.gun);
+ assert.ok(Math.abs(gun[0]+.232)<.001&&Math.abs(gun[1]-.128)<.001,'Weapon centers and lifts');
+ assert.ok(Number(await page.locator('#crosshair').evaluate(el=>el.style.opacity))<.001);
+ assert.ok(Math.abs(await turn(10)+.009)<.00003,'ADS lowers sensitivity');
+ await page.screenshot({path:'artifacts/gameplay-ads.png'});
+ await page.mouse.down({button:'left'});await page.waitForTimeout(180);
+ const ammo=await page.evaluate(()=>window.breach.game.actors[0].ammo);
+ assert.ok(ammo<30,'Can fire while aiming');
+ await page.mouse.up({button:'right'});await page.waitForTimeout(250);
+ assert.ok(await page.evaluate(()=>window.breach.game.actors[0].ammo)<ammo,'Releasing aim does not cancel firing');
+ await page.mouse.up({button:'left'});
+ await page.waitForFunction(()=>window.breach.game.actors[0].aimAmount<.001);
+ await page.mouse.down({button:'right'});
+ await page.waitForFunction(()=>window.breach.game.actors[0].aimAmount>.99);
+ await page.keyboard.press('r');await page.waitForTimeout(350);
+ assert.ok(await page.evaluate(()=>window.breach.game.actors[0].aimAmount)<.05,'Reload lowers the weapon');
+ await page.mouse.up({button:'right'});
+ await page.evaluate(()=>document.exitPointerLock());
+ await page.waitForFunction(()=>!document.pointerLockElement&&window.breach.game.actors[0].aimAmount===0);
+ assert.equal(await page.evaluate(()=>window.breach.game.actors[0].aimAmount),0,'Pause clears aim');
+ assert.deepEqual(errors,[]);
+ console.log('PASS: mouse linearity, inertia, friction, pointer lock, ADS FOV/weapon/HUD, sensitivity, shooting, reload and pause');
+} finally {await browser.close();}
