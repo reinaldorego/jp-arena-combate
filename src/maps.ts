@@ -19,7 +19,7 @@ export const maps:Record<MapId,ArenaMap>={
   {x:10,z:-16,w:4,d:4,h:3.8,kind:'pillar'},{x:0,z:4,w:3,d:3,h:1.4,kind:'pillar'},
  ])
 };
-export function free(map:ArenaMap,x:number,z:number,r=.4){return Math.abs(x)<24-r&&Math.abs(z)<24-r&&!map.blocks.some(b=>Math.abs(x-b.x)<b.w/2+r&&Math.abs(z-b.z)<b.d/2+r);}
+export function free(map:ArenaMap,x:number,z:number,r=.4,y=0){return Math.abs(x)<24-r&&Math.abs(z)<24-r&&!map.blocks.some(b=>y<b.h+.22&&Math.abs(x-b.x)<b.w/2+r&&Math.abs(z-b.z)<b.d/2+r);}
 export function wallDistance(map:ArenaMap,origin:Vector3,dir:Vector3){const ray=new Ray(origin,dir),hit=new Vector3();let distance=Infinity;for(const b of map.boxes)if(ray.intersectBox(b,hit))distance=Math.min(distance,origin.distanceTo(hit));return distance;}
 
 // Four-neighbor navigation prevents monsters cutting corners through solid geometry.

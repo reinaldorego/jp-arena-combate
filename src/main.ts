@@ -1,6 +1,7 @@
 import * as T from 'three';
-import {Arena,monsterNames,type Difficulty,type Monster} from './sim';
+import {Arena,monsterNames,difficultySettings,waveSizes,type Difficulty,type Monster} from './sim';
 import {maps,type MapId} from './maps';
+import {weapons,weaponOrder} from './weapons';
 import {Synth} from './audio';
 import {mobileControls} from './mobile';
 import {walkSpeed,baseMouseSensitivity,touchSensitivity,hipFov,aimFov,smoothAim,accelerate} from './controls';
@@ -10,19 +11,22 @@ const app=document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML=`<canvas id="world"></canvas>
 <section id="menu"><div class="menu-content">
  <div class="eyebrow">SINGLE-PLAYER / ARENA SHOOTER</div><h1>JP ARENA<br><span>COMBATE.</span></h1>
- <p class="subtitle">Dois mundos. Quatro hordas. Sobreviva e elimine todos os monstros.</p>
+ <p class="subtitle">Armas, jetpack e portais. Limpe as quatro hordas de cada mundo e continue sua jornada.</p>
  <label for="player-name">SEU NOME</label><input id="player-name" type="text" maxlength="24" placeholder="Digite seu nome" value="Jogador" autocomplete="nickname">
  <label>ESCOLHA SEU MUNDO</label><div class="worlds">
  <button class="map-card selected" data-map="guama" aria-pressed="true"><small>01 / MERCADO</small><strong>MUNDO GUAMÁ</strong><span>Praça aberta · luz verde</span></button>
  <button class="map-card" data-map="jurunas" aria-pressed="false"><small>02 / FORTALEZA</small><strong>MUNDO JURUNAS</strong><span>Pedra vulcânica · lava</span></button></div>
- <div class="settings"><div><label for="difficulty">DIFICULDADE</label><select id="difficulty"><option value="easy">FÁCIL</option><option value="normal">NORMAL</option></select></div><div><label for="sensitivity">SENSIBILIDADE <span id="sens-value">1.0</span></label><input id="sensitivity" type="range" min="0.3" max="2.5" step="0.1" value="1"></div></div>
+ <div class="settings"><div><label for="difficulty">DIFICULDADE</label><select id="difficulty"><option value="easy">FÁCIL</option><option value="normal">NORMAL</option><option value="hard">DIFÍCIL</option></select></div><div><label for="sensitivity">SENSIBILIDADE <span id="sens-value">1.0</span></label><input id="sensitivity" type="range" min="0.3" max="2.5" step="0.1" value="1"></div></div>
+ <p id="difficulty-info" class="difficulty-info"></p>
  <button id="start" class="primary">ENTRAR NA ARENA →</button>
- <p class="desktop-help">WASD / setas para mover · mouse para olhar · esquerdo para atirar · direito para ADS · R para recarregar · ESC para pausar.</p>
- <p class="touch-help">Mova no joystick. Arraste à direita para olhar. Toque MIRA para o zoom; segure e arraste ATIRAR para mirar e disparar com o mesmo dedo.</p>
+ <details class="tutorial" open><summary>COMANDOS E COMO JOGAR</summary><div class="control-guide">
+ <div><h3>PC · TECLADO E MOUSE</h3><p><b>WASD / setas</b> mover · <b>mouse</b> olhar<br><b>Esquerdo</b> atirar · <b>direito</b> mira ADS<br><b>1</b> metralhadora · <b>2</b> rifle · <b>3</b> bazuca<br><b>4</b> alternar arma · <b>R</b> recarregar<br><b>Espaço</b> pular; segure com jetpack para voar<br><b>ESC</b> pausar</p></div>
+ <div><h3>CELULAR · CONTROLES NA TELA</h3><p><b>Joystick à esquerda</b> mover<br><b>Arraste à direita</b> olhar / ajustar a mira<br><b>ATIRAR</b> segure e arraste para disparar e mirar<br><b>MIRA</b> liga / desliga ADS · <b>ARMA</b> alterna<br><b>PULAR / JET</b> segure para voar com jetpack<br><b>RECARREGAR</b> e <b>PAUSA</b> em botões próprios</p></div>
+ </div><p class="arena-guide">Colete armas e o jetpack nos pedestais brilhantes. O combustível dura 20 segundos de voo; ao soltar o botão, você desce. Rifle dispara uma vez por clique; bazuca explode em área. Depois das quatro ondas, caminhe até o portal azul para mudar de mundo.</p></details>
 </div><div class="world-caption"><span id="preview-name">MUNDO GUAMÁ</span><p id="preview-theme">PRAÇA DO MERCADO</p></div></section>
 <div id="hud" class="hidden"><div class="hud-top"><div class="identity"><small>JOGADOR</small><b id="hud-player"></b></div><div class="map-identity"><small>MUNDO</small><b id="hud-map"></b></div><div class="kill-count"><small>KILLS</small><b id="kills">0</b></div></div>
  <div id="crosshair"></div><div id="hit"></div><div id="damage"></div>
- <div id="bottom"><div class="health"><small>VIDA</small><b id="health">100</b></div><div class="ammo"><small id="ammo-label">MUNIÇÃO</small><b id="ammo">30</b><span id="reserve"> / 180</span></div></div></div>
+ <div id="portal-status" class="hidden"></div><div id="bottom"><div class="health"><small>VIDA</small><b id="health">100</b><small id="jet-status">JETPACK: COLETE NO MAPA</small></div><div class="ammo"><small id="ammo-label">MUNIÇÃO</small><b id="ammo">30</b><span id="reserve"> / 180</span></div></div></div>
 <section id="pause" class="overlay hidden"><div class="dialog"><h2>ARENA EM PAUSA</h2><button id="resume" class="primary">CONTINUAR</button><button id="restart" class="secondary">RECOMEÇAR</button><button id="home" class="secondary">ESCOLHER MUNDO</button></div></section>
 <section id="result" class="overlay hidden"><div class="dialog"><h2 id="result-title"></h2><p id="result-details"></p><button id="rematch" class="primary">JOGAR NOVAMENTE</button><button id="result-home" class="secondary">ESCOLHER MUNDO</button></div></section><div id="error"></div>`;
 const $=(s:string)=>document.querySelector<HTMLElement>(s)!;
@@ -32,7 +36,7 @@ renderer.setPixelRatio(Math.min(devicePixelRatio,touchDevice?1:1.5));renderer.se
 const scene=new T.Scene(),camera=new T.PerspectiveCamera(hipFov,innerWidth/innerHeight,.08,100);camera.rotation.order='YXZ';scene.add(camera);
 const skyLight=new T.HemisphereLight(0xe5ffee,0x3c3034,2.6),sun=new T.DirectionalLight(0xffd9b0,2.1);sun.position.set(-12,25,14);scene.add(skyLight,sun);
 const game=new Arena(),player=game.player,audio=new Synth(),world=new T.Group();scene.add(world);
-let selected:MapId='guama',sensitivity=1,yaw=0,pitch=0,mouseDown=false,aimHeld=false,paused=false,lastPhase=game.phase,hitUntil=0,damageUntil=0,flashUntil=0;
+let selected:MapId='guama',sensitivity=1,yaw=0,pitch=0,mouseDown=false,aimHeld=false,paused=false,lastPhase=game.phase,hitUntil=0,damageUntil=0,flashUntil=0,shotPressed=false,previousFire=false,renderedMap:MapId=game.map.id;
 const velocity=new T.Vector3(),keys=new Set<string>(),cube=new T.BoxGeometry(1,1,1);
 const dark=new T.MeshStandardMaterial({color:0x253238,roughness:.75}),steel=new T.MeshStandardMaterial({color:0x8b9998,roughness:.5}),glow=new T.MeshBasicMaterial({color:0xc5ff9a});
 function box(parent:T.Object3D,x:number,y:number,z:number,w:number,h:number,d:number,material:T.Material){const mesh=new T.Mesh(cube,material);mesh.position.set(x,y,z);mesh.scale.set(w,h,d);parent.add(mesh);return mesh;}
@@ -70,15 +74,40 @@ function clearActors(){for(const {g} of enemyModels.values())scene.remove(g);ene
 const healthMaterial=new T.MeshBasicMaterial({color:0x6effb9}),ammoMaterial=new T.MeshBasicMaterial({color:0xffc562});
 function syncActors(now:number){
  for(const enemy of game.enemies){if(!enemyModels.has(enemy.id))createMonster(enemy);const {g,legs}=enemyModels.get(enemy.id)!;g.visible=enemy.alive;const tag=g.getObjectByName('monster-name')!;const distance=enemy.pos.distanceTo(player.pos);tag.visible=distance>4&&distance<28;g.position.copy(enemy.pos);g.rotation.y=enemy.yaw;g.position.y=enemy.alive&&enemy.moving>.002?Math.sin(now*.009+enemy.id)*.04:0;for(let i=0;i<2;i++)legs[i].rotation.x=enemy.moving>.002?Math.sin(now*.01+i*Math.PI)*.3:0;}
- for(const pickup of game.pickups){let g=pickupModels.get(pickup.id);if(!g){g=new T.Group();const material=pickup.kind==='health'?healthMaterial:ammoMaterial;box(g,0,0,0,.6,.5,.6,dark);if(pickup.kind==='health'){box(g,0,.28,0,.12,.04,.4,material);box(g,0,.28,0,.4,.04,.12,material);}else box(g,0,.28,0,.4,.06,.4,material);scene.add(g);pickupModels.set(pickup.id,g);}g.visible=pickup.active;g.position.copy(pickup.pos);g.position.y=.45+Math.sin(now*.002)*.1;g.rotation.y=now*.0007;}
+ for(const pickup of game.pickups){let g=pickupModels.get(pickup.id);if(!g){g=new T.Group();const material=pickup.kind==='health'?healthMaterial:pickup.kind==='jetpack'?glow:ammoMaterial;box(g,0,0,0,.6,.25,.6,dark);if(pickup.kind==='jetpack'){box(g,-.15,.5,0,.22,.65,.26,steel);box(g,.15,.5,0,.22,.65,.26,steel);box(g,0,.18,0,.3,.08,.3,material);}else if(pickup.kind==='weapon'){box(g,0,.45,0,pickup.weapon==='bazooka'?.25:.12,.12,pickup.weapon==='rifle'?1.2:.8,material);box(g,0,.32,.15,.1,.2,.15,steel);}else if(pickup.kind==='health'){box(g,0,.28,0,.12,.04,.4,material);box(g,0,.28,0,.4,.04,.12,material);}else box(g,0,.28,0,.4,.06,.4,material);scene.add(g);pickupModels.set(pickup.id,g);}g.visible=pickup.active;g.position.copy(pickup.pos);g.position.y=.45+Math.sin(now*.002)*.1;g.rotation.y=now*.0007;}
 }
 const gun=new T.Group();camera.add(gun);
-box(gun,.29,-.27,-.58,.16,.18,.62,dark);box(gun,.29,-.2,-.5,.14,.06,.28,steel);box(gun,.29,-.38,-.51,.1,.26,.12,steel);box(gun,.29,-.31,-.28,.16,.16,.3,dark);box(gun,.29,-.27,-1,.075,.075,.28,steel);box(gun,.29,-.16,-.92,.025,.04,.025,glow);
+const gunModels=weaponOrder.map(id=>{
+ const model=new T.Group();model.name=id;gun.add(model);
+ if(id==='bazooka'){
+  const tube=new T.Mesh(new T.CylinderGeometry(.17,.17,.82,12),dark);tube.rotation.x=Math.PI/2;tube.position.set(.29,-.26,-.65);model.add(tube);
+  box(model,.29,-.42,-.42,.1,.22,.12,steel);box(model,.29,-.08,-.7,.02,.04,.06,glow);
+ }else{
+  const rifle=id==='rifle';box(model,.29,-.27,-.58,.16,.18,.62,dark);box(model,.29,-.2,-.5,.14,.06,.28,steel);box(model,.29,-.38,-.51,.1,.26,.12,steel);box(model,.29,-.31,-.28,.16,.16,.3,dark);box(model,.29,-.27,rifle?-1.1:-1,.075,.075,rifle?.48:.28,steel);box(model,.29,-.16,-.92,.025,.04,.025,glow);
+  if(rifle)box(model,.29,-.2,-.68,.08,.04,.18,steel);
+ }return model;
+});
 const muzzle=new T.Mesh(new T.ConeGeometry(.1,.32,6),new T.MeshBasicMaterial({color:0xffdf88}));muzzle.rotation.x=-Math.PI/2;muzzle.position.set(.29,-.27,-1.2);gun.add(muzzle);muzzle.visible=false;
-function lookBy(x:number,y:number){if(paused||game.phase!=='playing')return;const scale=(mobile.enabled?touchSensitivity:baseMouseSensitivity)*sensitivity*(1-.55*player.aimAmount);yaw-=x*scale;pitch=T.MathUtils.clamp(pitch-y*scale,-1.4,1.4);player.yaw=yaw;}
-const mobile=mobileControls({look:lookBy,reload:()=>game.reload(),pause:pauseGame});
-function resetControls(){mobile.reset();keys.clear();mouseDown=aimHeld=false;velocity.set(0,0,0);player.aimAmount=player.moving=player.speed=0;}
-function pauseGame(){if(game.phase!=='playing')return;paused=true;resetControls();mobile.show(false);$('#pause').classList.remove('hidden');if(document.pointerLockElement)document.exitPointerLock();}
+const portal=new T.Group(),portalMaterial=new T.MeshBasicMaterial({color:0x74eaff,transparent:true,opacity:.8}),portalRing=new T.Mesh(new T.TorusGeometry(1.6,.16,8,32),portalMaterial),portalCore=new T.Mesh(new T.IcosahedronGeometry(.7,0),new T.MeshBasicMaterial({color:0xdcfbff,wireframe:true}));portalRing.position.y=2;portalCore.position.y=2;portal.add(portalRing,portalCore);const portalLight=new T.PointLight(0x65dfff,8,12);portalLight.position.y=2;portal.add(portalLight);portal.visible=false;scene.add(portal);
+const rocketModels=new Map<number,T.Mesh>(),rocketGeo=new T.ConeGeometry(.12,.6,6),rocketMaterial=new T.MeshBasicMaterial({color:0xffaf4f});
+const explosions:{mesh:T.Mesh;until:number}[]=[],explosionGeo=new T.IcosahedronGeometry(1,1);
+const pack=new T.Group(),flameMaterial=new T.MeshBasicMaterial({color:0xffae35,transparent:true,opacity:.8}),flameGeo=new T.ConeGeometry(.12,.7,6),flames:T.Mesh[]=[];
+for(const x of [-.22,.22]){box(pack,x,1.05,.4,.24,.65,.3,steel);const flame=new T.Mesh(flameGeo,flameMaterial);flame.rotation.z=Math.PI;flame.position.set(x,.38,.4);pack.add(flame);flames.push(flame);}scene.add(pack);
+// The backpack exhaust also glows along the edge of the first-person view.
+const flightGlow=new T.Mesh(flameGeo,flameMaterial);flightGlow.position.set(-.28,-.44,-.6);flightGlow.rotation.z=Math.PI;camera.add(flightGlow);
+function clearEffects(){for(const mesh of rocketModels.values())scene.remove(mesh);rocketModels.clear();for(const effect of explosions){scene.remove(effect.mesh);(effect.mesh.material as T.Material).dispose();}explosions.length=0;portal.visible=pack.visible=flightGlow.visible=false;}
+function syncEffects(now:number){
+ portal.visible=game.portalOpen&&game.phase==='cleared';portal.position.copy(game.portalPos);portalRing.rotation.z=now*.0006;portalCore.rotation.set(now*.001,now*.0015,0);portalCore.scale.setScalar(1+Math.sin(now*.004)*.12);
+ const live=new Set(game.rockets.map(r=>r.id));for(const [id,mesh] of rocketModels)if(!live.has(id)){scene.remove(mesh);rocketModels.delete(id);}
+ for(const rocket of game.rockets){let mesh=rocketModels.get(rocket.id);if(!mesh){mesh=new T.Mesh(rocketGeo,rocketMaterial);scene.add(mesh);rocketModels.set(rocket.id,mesh);}mesh.position.copy(rocket.pos);mesh.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),rocket.dir);}
+ for(let i=explosions.length-1;i>=0;i--){const e=explosions[i],left=(e.until-now)/450;if(left<=0){scene.remove(e.mesh);(e.mesh.material as T.Material).dispose();explosions.splice(i,1);}else{e.mesh.scale.setScalar(.3+(1-left)*5);(e.mesh.material as T.MeshBasicMaterial).opacity=left*.65;}}
+ pack.visible=player.jetpack&&game.active;pack.position.copy(player.pos);pack.rotation.y=yaw;for(const flame of flames){flame.visible=player.flying;flame.scale.y=.8+Math.sin(now*.04)*.2;}
+ flightGlow.visible=player.flying&&!paused;flightGlow.scale.setScalar(.32+Math.sin(now*.04)*.06);
+}
+function lookBy(x:number,y:number){if(paused||!game.active)return;const scale=(mobile.enabled?touchSensitivity:baseMouseSensitivity)*sensitivity*(1-.55*player.aimAmount);yaw-=x*scale;pitch=T.MathUtils.clamp(pitch-y*scale,-1.4,1.4);player.yaw=yaw;}
+const mobile=mobileControls({look:lookBy,reload:()=>game.reload(),pause:pauseGame,weapon:()=>game.cycleWeapon()});
+function resetControls(){mobile.reset();keys.clear();mouseDown=aimHeld=shotPressed=previousFire=false;game.lift=false;player.flying=false;velocity.set(0,0,0);player.aimAmount=player.moving=player.speed=0;}
+function pauseGame(){if(!game.active)return;paused=true;resetControls();mobile.show(false);$('#pause').classList.remove('hidden');if(document.pointerLockElement)document.exitPointerLock();}
 async function lock(){
  if(mobile.enabled){mobile.show(true);$('#error').textContent='';return;}
  try{await canvas.requestPointerLock({unadjustedMovement:true});}catch(e){if(e instanceof DOMException&&e.name==='NotSupportedError'){try{await canvas.requestPointerLock();return;}catch{}}pauseGame();$('#error').textContent='Clique em Continuar para capturar o mouse.';}
@@ -86,47 +115,50 @@ async function lock(){
 async function begin(){
  try{await audio.start();}catch{ /* Audio availability never blocks the arena. */ }
  game.start(selected,($('#player-name') as HTMLInputElement).value,($('#difficulty') as HTMLSelectElement).value as Difficulty);
- clearActors();buildWorld(selected);resetControls();yaw=player.yaw;pitch=0;paused=false;lastPhase='playing';hitUntil=damageUntil=flashUntil=0;
+ clearActors();clearEffects();buildWorld(selected);renderedMap=game.map.id;resetControls();yaw=player.yaw;pitch=0;paused=false;lastPhase='playing';hitUntil=damageUntil=flashUntil=0;
  $('#menu').classList.add('hidden');$('#pause').classList.add('hidden');$('#result').classList.add('hidden');$('#hud').classList.remove('hidden');hud();void lock();
 }
-function home(){game.phase='menu';paused=false;resetControls();mobile.show(false);if(document.pointerLockElement)document.exitPointerLock();clearActors();$('#menu').classList.remove('hidden');$('#pause').classList.add('hidden');$('#result').classList.add('hidden');$('#hud').classList.add('hidden');$('#error').textContent='';}
+function home(){game.phase='menu';paused=false;resetControls();mobile.show(false);if(document.pointerLockElement)document.exitPointerLock();clearActors();clearEffects();$('#menu').classList.remove('hidden');$('#pause').classList.add('hidden');$('#result').classList.add('hidden');$('#hud').classList.add('hidden');$('#error').textContent='';}
 $('#start').onclick=begin;$('#restart').onclick=begin;$('#rematch').onclick=begin;$('#home').onclick=home;$('#result-home').onclick=home;
 $('#resume').onclick=()=>{paused=false;resetControls();$('#pause').classList.add('hidden');void audio.start().catch(()=>{});void lock();};
 document.querySelectorAll<HTMLButtonElement>('[data-map]').forEach(button=>button.onclick=()=>{selected=button.dataset.map as MapId;document.querySelectorAll<HTMLButtonElement>('[data-map]').forEach(other=>{const active=other===button;other.classList.toggle('selected',active);other.setAttribute('aria-pressed',String(active));});buildWorld(selected);});
 ($('#sensitivity') as HTMLInputElement).oninput=e=>{sensitivity=Number((e.target as HTMLInputElement).value);$('#sens-value').textContent=sensitivity.toFixed(1);};
-document.addEventListener('pointerlockchange',()=>{if(mobile.enabled)return;resetControls();if(document.pointerLockElement===canvas){paused=false;$('#pause').classList.add('hidden');$('#error').textContent='';}else if(game.phase==='playing')pauseGame();});
+document.addEventListener('pointerlockchange',()=>{if(mobile.enabled)return;resetControls();if(document.pointerLockElement===canvas){paused=false;$('#pause').classList.add('hidden');$('#error').textContent='';}else if(game.active)pauseGame();});
 document.addEventListener('mousemove',e=>{if(document.pointerLockElement===canvas)lookBy(e.movementX,e.movementY);});
-document.addEventListener('mousedown',e=>{if(document.pointerLockElement!==canvas||paused||game.phase!=='playing')return;if(e.button===0)mouseDown=true;if(e.button===2)aimHeld=true;});
+document.addEventListener('mousedown',e=>{if(document.pointerLockElement!==canvas||paused||!game.active)return;if(e.button===0){mouseDown=true;shotPressed=true;}if(e.button===2)aimHeld=true;});
 document.addEventListener('mouseup',e=>{if(e.button===0)mouseDown=false;if(e.button===2)aimHeld=false;});canvas.addEventListener('contextmenu',e=>e.preventDefault());
-document.addEventListener('keydown',e=>{if((e.target as HTMLElement).matches('input,select'))return;if(e.code.startsWith('Arrow'))e.preventDefault();if(game.phase==='playing'&&!paused)keys.add(e.code);if(e.repeat)return;if(e.code==='KeyR')game.reload();if(e.code==='Escape'){if(paused)$('#resume').click();else pauseGame();}if(e.code==='Enter'&&(game.phase==='won'||game.phase==='lost'))void begin();});
-document.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{if(game.phase==='playing')pauseGame();else resetControls();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.phase==='playing')pauseGame();});
+document.addEventListener('keydown',e=>{if((e.target as HTMLElement).matches('input,select'))return;if(e.code.startsWith('Arrow')||e.code==='Space')e.preventDefault();if(game.active&&!paused)keys.add(e.code);if(e.repeat)return;if(game.active&&!paused){if(e.code==='KeyR')game.reload();if(['Digit1','Digit2','Digit3'].includes(e.code))game.selectWeapon(weaponOrder[Number(e.code.slice(-1))-1]);if(e.code==='Digit4')game.cycleWeapon();}if(e.code==='Escape'){if(paused)$('#resume').click();else pauseGame();}if(e.code==='Enter'&&game.phase==='lost')void begin();});
+document.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{if(game.active)pauseGame();else resetControls();});document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.active)pauseGame();});
 window.addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
 function hud(){
- $('#hud-player').textContent=player.name;$('#hud-map').textContent=game.map.name;$('#kills').textContent=String(game.kills);$('#health').textContent=String(player.hp);$('#ammo').textContent=String(player.ammo);$('#reserve').textContent=` / ${player.reserve}`;$('#ammo-label').textContent=player.reload>0?'RECARREGANDO':'MUNIÇÃO';
+ $('#hud-player').textContent=player.name;$('#hud-map').textContent=game.map.name;$('#kills').textContent=String(game.kills);$('#health').textContent=String(player.hp);$('#ammo').textContent=String(player.ammo);$('#reserve').textContent=` / ${player.reserve}`;$('#ammo-label').textContent=player.reload>0?'RECARREGANDO':weapons[player.weapon].name;$('#jet-status').textContent=player.jetpack?`JET ${player.fuel.toFixed(1)}s`:'JET: COLETE';$('#portal-status').classList.toggle('hidden',!game.portalOpen);$('#portal-status').textContent=`PORTAL ABERTO → ${game.map.id==='guama'?'MUNDO JURUNAS':'MUNDO GUAMÁ'}`;mobile.weaponLabel(weapons[player.weapon].name);mobile.flightLabel(player.jetpack,player.fuel);
 }
 function events(now:number){for(const event of game.events){
  if(event.type==='shot'){audio.play('shot');flashUntil=now+45;const kick=(game.difficulty==='easy'?.5:1)*(1-.65*player.aimAmount);pitch=Math.min(1.4,pitch+(.005+Math.min(player.spray,10)*.0004)*kick);yaw+=Math.sin(player.spray*.72)*.002*kick;}
  if(event.type==='hit'){if(event.target===0){damageUntil=now+350;audio.play('armor');}else{hitUntil=now+100;audio.play(event.zone==='head'?'head':'armor');}}
- if(event.type==='reload')audio.play('reload');if(event.type==='pickup')audio.play('beep');
+ if(event.type==='reload')audio.play('reload');if(event.type==='pickup'||event.type==='portal')audio.play('beep');if(event.type==='explosion'&&event.pos){audio.play('explode',event.pos);const mesh=new T.Mesh(explosionGeo,new T.MeshBasicMaterial({color:0xffb13c,transparent:true,opacity:.65,depthWrite:false}));mesh.position.copy(event.pos);scene.add(mesh);explosions.push({mesh,until:now+450});}
  }game.events=[];}
 let last=performance.now(),hudAt=0;const fpsSamples:number[]=[];let frames=0,fpsAt=last;
 function frame(now:number){
  requestAnimationFrame(frame);const dt=Math.min((now-last)/1000,.1);last=now;frames++;if(now-fpsAt>=1000){fpsSamples.push(frames*1000/(now-fpsAt));if(fpsSamples.length>120)fpsSamples.shift();frames=0;fpsAt=now;}
- const active=game.phase==='playing'&&!paused;
+ const active=game.active&&!paused;
  player.aimAmount=smoothAim(player.aimAmount,active&&player.reload<=0&&(aimHeld||mobile.aim),dt);
  const fov=hipFov+(aimFov-hipFov)*player.aimAmount;if(Math.abs(camera.fov-fov)>.001){camera.fov=fov;camera.updateProjectionMatrix();}$('#crosshair').style.opacity=String(1-player.aimAmount);
  if(game.phase==='menu'){camera.position.set(23,19,27);camera.lookAt(0,0,-3);gun.visible=false;}else{
   if(active){accelerate(velocity,keys,yaw,walkSpeed,dt,{x:mobile.x,z:mobile.z});const before=player.pos.clone();game.move(player,velocity.x*dt,velocity.z*dt,dt);if(Math.abs(player.pos.x-before.x)<1e-8)velocity.x=0;if(Math.abs(player.pos.z-before.z)<1e-8)velocity.z=0;
-   if(mouseDown||mobile.fire)game.shoot(new T.Vector3(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch)));
-   game.update(dt);events(now);
+   const firing=mouseDown||mobile.fire;if(firing&&(weapons[player.weapon].auto||!previousFire)||shotPressed||mobile.firePressed)game.shoot(new T.Vector3(-Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch)));
+   previousFire=firing;shotPressed=mobile.firePressed=false;game.lift=keys.has('Space')||mobile.fly||mobile.jumpPressed;mobile.jumpPressed=false;game.update(dt);
+   if(game.map.id!==renderedMap){clearActors();clearEffects();buildWorld(game.map.id);renderedMap=game.map.id;resetControls();yaw=player.yaw;pitch=0;hud();}
+   events(now);
   }
-  if(game.phase!==lastPhase&&(game.phase==='won'||game.phase==='lost')){resetControls();mobile.show(false);if(document.pointerLockElement)document.exitPointerLock();$('#result-title').textContent=game.phase==='won'?'MUNDO CONQUISTADO':'FIM DE JOGO';$('#result-details').textContent=`${player.name} · ${game.map.name} · ${game.kills} Kills`;$('#result').classList.remove('hidden');$('#pause').classList.add('hidden');paused=false;}
+  if(game.phase!==lastPhase&&game.phase==='lost'){resetControls();mobile.show(false);if(document.pointerLockElement)document.exitPointerLock();$('#result-title').textContent='FIM DE JOGO';$('#result-details').textContent=`${player.name} · ${game.map.name} · ${game.kills} Kills`;$('#result').classList.remove('hidden');$('#pause').classList.add('hidden');paused=false;}
   lastPhase=game.phase;camera.position.copy(player.eye);camera.rotation.set(pitch,yaw,0);gun.visible=player.alive;
-  const aim=player.aimAmount,scale=1-.2*aim,bob=paused?0:player.moving*.22*(1-aim),recoil=Math.max(0,(flashUntil-now)/45);gun.scale.setScalar(scale);gun.position.set(-.29*scale*aim+Math.sin(now*.01)*bob,.16*scale*aim-Math.abs(Math.cos(now*.012))*bob,-.2*aim+recoil*.055*(1-.65*aim));muzzle.visible=now<flashUntil;
+  gunModels.forEach(model=>model.visible=model.name===player.weapon);const aim=player.aimAmount,scale=1-.2*aim,bob=paused?0:player.moving*.22*(1-aim),recoil=Math.max(0,(flashUntil-now)/45);gun.scale.setScalar(scale);gun.position.set(-.29*scale*aim+Math.sin(now*.01)*bob,.16*scale*aim-Math.abs(Math.cos(now*.012))*bob,-.2*aim+recoil*.055*(1-.65*aim));muzzle.visible=now<flashUntil;
   audio.listener(camera.position,yaw);
  }
- if(game.phase!=='menu')syncActors(now);$('#hit').style.opacity=now<hitUntil?'1':'0';$('#damage').style.opacity=now<damageUntil?String((damageUntil-now)/350):'0';if(now>hudAt&&game.phase!=='menu'){hud();hudAt=now+80;}renderer.render(scene,camera);
+ if(game.phase!=='menu'){syncActors(now);syncEffects(now);}else{pack.visible=portal.visible=flightGlow.visible=false;}$('#hit').style.opacity=now<hitUntil?'1':'0';$('#damage').style.opacity=now<damageUntil?String((damageUntil-now)/350):'0';if(now>hudAt&&game.phase!=='menu'){hud();hudAt=now+80;}renderer.render(scene,camera);
 }
-buildWorld(selected);requestAnimationFrame(frame);
+function difficultyInfo(){const value=($('#difficulty') as HTMLSelectElement).value as Difficulty;const count=waveSizes.reduce((sum,n)=>sum+Math.ceil(n*difficultySettings[value].count),0);$('#difficulty-info').textContent=`${count} monstros por mundo · ${value==='easy'?'mais munição e inimigos mais fracos':value==='normal'?'vida e dano intermediários':'mais resistentes, mais dano e pouca munição'}`;}
+($('#difficulty') as HTMLSelectElement).onchange=difficultyInfo;difficultyInfo();buildWorld(selected);requestAnimationFrame(frame);
 Object.assign(window,{arena:{game,renderer,start:begin,telemetry:()=>({fps:fpsSamples,drawCalls:renderer.info.render.calls})}});
 window.addEventListener('error',e=>{$('#error').textContent=`Erro: ${e.message}`;});

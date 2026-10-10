@@ -1,9 +1,9 @@
-export function mobileControls(callbacks:{look:(x:number,y:number)=>void;reload:()=>void;pause:()=>void}){
+export function mobileControls(callbacks:{look:(x:number,y:number)=>void;reload:()=>void;pause:()=>void;weapon:()=>void}){
  const enabled=matchMedia('(pointer:coarse)').matches;
- const state={enabled,x:0,z:0,fire:false,aim:false};
+ const state={enabled,x:0,z:0,fire:false,aim:false,fly:false,firePressed:false,jumpPressed:false};
  document.body.classList.toggle('touch-mode',enabled);
  const panel=document.createElement('div');panel.id='touch-controls';panel.className='hidden';
- panel.innerHTML=`<div id="touch-look" aria-label="Arraste para olhar"></div><div id="joystick" aria-label="Arraste para mover"><i></i></div><div class="touch-top"><button data-tap="pause">PAUSA</button></div><div class="touch-actions"><button data-toggle="aim" aria-pressed="false">MIRA</button><button data-hold="fire" class="touch-fire">ATIRAR<br>↔ ARRASTE</button><button data-tap="reload">RECARREGAR</button></div>`;
+ panel.innerHTML=`<div id="touch-look" aria-label="Arraste para olhar"></div><div id="joystick" aria-label="Arraste para mover"><i></i></div><div class="touch-top"><button data-tap="pause">PAUSA</button></div><div class="touch-actions"><button data-toggle="aim" aria-pressed="false">MIRA</button><button data-hold="fire" class="touch-fire">ATIRAR<br>↔ ARRASTE</button><button data-tap="weapon" aria-label="Alternar arma">ARMA</button><button data-hold="fly" aria-label="Segure para pular ou voar">PULAR / JET</button><button data-tap="reload">RECARREGAR</button></div>`;
  document.body.append(panel);
  let moveId:number|null=null,lookId:number|null=null,lastX=0,lastY=0;
  const pointers=new Map<number,HTMLElement>();
@@ -21,8 +21,8 @@ export function mobileControls(callbacks:{look:(x:number,y:number)=>void;reload:
  look.addEventListener('pointermove',e=>{if(e.pointerId!==lookId)return;callbacks.look(e.clientX-lastX,e.clientY-lastY);lastX=e.clientX;lastY=e.clientY;});
  for(const type of ['pointerup','pointercancel','lostpointercapture'])look.addEventListener(type,e=>{if((e as PointerEvent).pointerId===lookId)lookId=null;});
  panel.querySelectorAll<HTMLButtonElement>('[data-hold]').forEach(button=>{
-  const key=button.dataset.hold as 'fire';let id:number|null=null,x=0,y=0;
-  button.addEventListener('pointerdown',e=>{if(id!==null)return;e.preventDefault();id=e.pointerId;x=e.clientX;y=e.clientY;button.setPointerCapture(id);state[key]=true;button.classList.add('pressed');});
+  const key=button.dataset.hold as 'fire'|'fly';let id:number|null=null,x=0,y=0;
+  button.addEventListener('pointerdown',e=>{if(id!==null)return;e.preventDefault();id=e.pointerId;x=e.clientX;y=e.clientY;button.setPointerCapture(id);state[key]=true;if(key==='fire')state.firePressed=true;else state.jumpPressed=true;button.classList.add('pressed');});
   button.addEventListener('pointermove',e=>{if(key==='fire'&&e.pointerId===id){callbacks.look(e.clientX-x,e.clientY-y);x=e.clientX;y=e.clientY;}});
   for(const type of ['pointerup','pointercancel','lostpointercapture'])button.addEventListener(type,e=>{if((e as PointerEvent).pointerId===id){id=null;state[key]=false;button.classList.remove('pressed');}});
  });
@@ -32,7 +32,10 @@ export function mobileControls(callbacks:{look:(x:number,y:number)=>void;reload:
  aim.onclick=e=>{if(e.detail===0)toggleAim();};
  panel.querySelectorAll<HTMLButtonElement>('[data-tap]').forEach(button=>button.onclick=()=>callbacks[button.dataset.tap as Exclude<keyof typeof callbacks,'look'>]());
  return Object.assign(state,{
-  reset(){for(const [id,element] of pointers){element.dispatchEvent(new PointerEvent('pointercancel',{pointerId:id}));if(element.hasPointerCapture(id))element.releasePointerCapture(id);}pointers.clear();state.x=state.z=0;state.fire=state.aim=false;moveId=lookId=null;thumb.style.transform='';aim.setAttribute('aria-pressed','false');panel.querySelectorAll('.pressed').forEach(el=>el.classList.remove('pressed'));},
+  reset(){for(const [id,element] of pointers){element.dispatchEvent(new PointerEvent('pointercancel',{pointerId:id}));if(element.hasPointerCapture(id))element.releasePointerCapture(id);}pointers.clear();state.x=state.z=0;state.fire=state.aim=state.fly=state.firePressed=state.jumpPressed=false;moveId=lookId=null;thumb.style.transform='';aim.setAttribute('aria-pressed','false');panel.querySelectorAll('.pressed').forEach(el=>el.classList.remove('pressed'));},
+  weaponLabel(name:string){const button=panel.querySelector('[data-tap="weapon"]')!;button.textContent=`ARMA
+${name==='METRALHADORA'?'METRALHA':name}`;button.setAttribute('aria-label',`Alternar arma; atual ${name}`);},
+  flightLabel(owned:boolean,fuel:number){panel.querySelector('[data-hold="fly"]')!.textContent=owned&&fuel>0?`JET ${Math.ceil(fuel)}s`:'PULAR';},
   show(show:boolean){panel.classList.toggle('hidden',!enabled||!show);}
  });
 }
